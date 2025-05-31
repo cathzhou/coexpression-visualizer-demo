@@ -5,8 +5,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Chatter",
-  description: "RAG using MongoDB Atlas & OpenAI"
+  title: "Co-Expression Visualizer",
+  description: "Visualize co-expression patterns between genes"
 };
 
 export default function RootLayout({

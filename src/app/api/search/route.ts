@@ -62,40 +62,72 @@ export async function GET(request: Request) {
       pairs = allPairs.slice(startIdx, startIdx + MAX_PAIRS_PER_REQUEST);
       
     } else {
-      // Search all mode - search in MongoDB with pagination
-      const searchQuery = {
-        $or: queryType === 'receptor' 
-          ? [{ p1_id: query }, { p1_name: { $regex: new RegExp(query, 'i') } }]
-          : [{ p2_id: query }, { p2_name: { $regex: new RegExp(query, 'i') } }]
-      };
-
-      // First check if the gene exists in the database
-      const count = await pairsCollection.countDocuments(searchQuery);
+      // Search all mode - check if the input gene exists
+      const searchField = queryType === 'receptor' ? 'p1' : 'p2';
+      const otherField = queryType === 'receptor' ? 'p2' : 'p1';
       
-      if (count === 0) {
+      // Check if the gene exists in the database
+      const geneQuery = {
+        $or: [
+          { [`${searchField}_id`]: query },
+          { [`${searchField}_name`]: { $regex: new RegExp(query, 'i') } }
+        ]
+      };
+      
+      const geneExists = await pairsCollection.findOne(geneQuery);
+      
+      if (!geneExists) {
         const errorMessage = queryType === 'receptor'
           ? `No receptor found with gene name or UniProt ID "${query}"`
           : `No ligand found with gene name or UniProt ID "${query}"`;
-        return NextResponse.json({ error: errorMessage }, { status: 404 });
+        return new Response(
+          `data: ${JSON.stringify({ 
+            error: errorMessage,
+            details: `The ${queryType} "${query}" was not found in our database. Please check the gene name or UniProt ID and try again.`
+          })}\n\n`,
+          {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+            },
+          }
+        );
       }
 
+      // Get all matching pairs
       pairs = await pairsCollection
-        .find(searchQuery)
+        .find(geneQuery)
         .skip((page - 1) * MAX_PAIRS_PER_REQUEST)
         .limit(MAX_PAIRS_PER_REQUEST)
         .toArray();
+
+      if (!pairs.length && page === 1) {
+        const errorMessage = queryType === 'receptor'
+          ? `No ligand pairs found for receptor "${query}"`
+          : `No receptor pairs found for ligand "${query}"`;
+        return new Response(
+          `data: ${JSON.stringify({ 
+            error: errorMessage,
+            details: `No interaction pairs were found for the ${queryType} "${query}" in our database.`
+          })}\n\n`,
+          {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+            },
+          }
+        );
+      }
     }
 
     if (!pairs.length) {
-      if (page === 1) {
-        return NextResponse.json({ error: 'No matching pairs found' }, { status: 404 });
-      } else {
-        return NextResponse.json({ 
-          results: [], 
-          hasMore: false,
-          message: 'No more results' 
-        });
-      }
+      return NextResponse.json({ 
+        results: [], 
+        hasMore: false,
+        message: 'No more results' 
+      });
     }
 
     const encoder = new TextEncoder();
@@ -111,24 +143,26 @@ export async function GET(request: Request) {
         for (const pair of pairs) {
           try {
             // Send update for receptor processing
+            const receptorId = queryType === 'receptor' ? pair.p1_id : pair.p2_id;
             await writer.write(
-              encoder.encode(`data: ${JSON.stringify({ currentGene: pair.p1_id })}\n\n`)
+              encoder.encode(`data: ${JSON.stringify({ currentGene: receptorId })}\n\n`)
             );
 
-            const receptorExpr = await dataExtractor.get_expression_matrix(pair.p1_id);
+            const receptorExpr = await dataExtractor.get_expression_matrix(receptorId);
             if (!receptorExpr) {
-              errors.push(`Could not fetch expression data for receptor ${pair.p1_id}`);
+              errors.push(`Could not fetch expression data for receptor ${receptorId}`);
               continue;
             }
             
             // Send update for ligand processing
+            const ligandId = queryType === 'receptor' ? pair.p2_id : pair.p1_id;
             await writer.write(
-              encoder.encode(`data: ${JSON.stringify({ currentGene: pair.p2_id })}\n\n`)
+              encoder.encode(`data: ${JSON.stringify({ currentGene: ligandId })}\n\n`)
             );
             
-            const ligandExpr = await dataExtractor.get_expression_matrix(pair.p2_id);
+            const ligandExpr = await dataExtractor.get_expression_matrix(ligandId);
             if (!ligandExpr) {
-              errors.push(`Could not fetch expression data for ligand ${pair.p2_id}`);
+              errors.push(`Could not fetch expression data for ligand ${ligandId}`);
               continue;
             }
 
@@ -141,8 +175,8 @@ export async function GET(request: Request) {
               pair,
               features,
               expression: {
-                receptor: receptorExpr,
-                ligand: ligandExpr
+                receptor: queryType === 'receptor' ? receptorExpr : ligandExpr,
+                ligand: queryType === 'receptor' ? ligandExpr : receptorExpr
               }
             });
           } catch (error) {

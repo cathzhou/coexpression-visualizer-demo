@@ -77,7 +77,11 @@ export default function SearchForm() {
       eventSource.onerror = (error) => {
         console.error('EventSource error:', error);
         eventSource.close();
-        setError('An error occurred while processing the data');
+        
+        // Try to get the response error message
+        const errorResponse = error instanceof Error ? error.message : 'Connection error';
+        setError(errorResponse);
+        setErrors(prev => [...prev, `Failed to connect to server: ${errorResponse}`]);
         setLoading(false);
         setProcessedCount(0);
       };
@@ -235,6 +239,19 @@ export default function SearchForm() {
       {/* Results Display */}
       {results.length > 0 && (
         <div className="space-y-6">
+          {/* Load More Button - Moved to top */}
+          {hasMore && (
+            <div className="text-center mb-6">
+              <button
+                onClick={loadMore}
+                disabled={loading}
+                className="px-6 py-2 bg-navy-600 text-white rounded hover:bg-navy-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Loading...' : 'Load More Results'}
+              </button>
+            </div>
+          )}
+
           {results.map((result, index) => (
             <div key={index} className="border border-navy-600 rounded p-4 bg-navy-800">
               <div className="mb-6">
@@ -298,19 +315,6 @@ export default function SearchForm() {
               />
             </div>
           ))}
-          
-          {/* Load More Button */}
-          {hasMore && (
-            <div className="text-center mt-4">
-              <button
-                onClick={loadMore}
-                disabled={loading}
-                className="px-6 py-2 bg-navy-600 text-white rounded hover:bg-navy-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Loading...' : 'Load More Results'}
-              </button>
-            </div>
-          )}
         </div>
       )}
     </div>
