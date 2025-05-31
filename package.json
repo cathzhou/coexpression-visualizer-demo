@@ -1,5 +1,5 @@
 {
-  "name": "chatter",
+  "name": "coexpression-visualizer",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,19 +9,12 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@langchain/community": "^0.3.45",
-    "@langchain/openai": "^0.0.16",
     "ai": "^4.3.16",
     "axios": "^1.6.7",
     "dotenv": "^16.4.5",
     "filepond": "^4.30.6",
-    "langchain": "^0.3.27",
     "mongodb": "^5.9.2",
     "next": "^15.3.3",
-    "pdf-parse": "^1.1.1",
-    "pdf2json": "^3.0.5",
-    "pdfjs-dist": "^4.0.379",
-    "pdfreader": "^3.0.2",
     "react": "^18",
     "react-dom": "^18",
     "react-filepond": "^7.1.2",
@@ -32,7 +25,6 @@
   },
   "devDependencies": {
     "@types/node": "^20",
-    "@types/pdf-parse": "^1.1.4",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.0.1",
