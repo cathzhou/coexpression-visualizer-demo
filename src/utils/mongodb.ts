@@ -1,11 +1,17 @@
-import { MongoClient } from 'mongodb';
+import { MongoClient, MongoClientOptions } from 'mongodb';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please add your Mongo URI to .env.local');
 }
 
 const uri = process.env.MONGODB_URI;
-const options = {};
+const options: MongoClientOptions = {
+  ssl: true,
+  tls: true,
+  tlsAllowInvalidCertificates: false,
+  retryWrites: true,
+  maxPoolSize: 10
+};
 
 let client;
 let clientPromise: Promise<MongoClient>;
