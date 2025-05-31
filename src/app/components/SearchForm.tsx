@@ -43,6 +43,7 @@ export default function SearchForm() {
 
       eventSource.onerror = (error) => {
         console.error('EventSource error:', error);
+        console.log(error)
         eventSource.close();
         setError('An error occurred while processing the data');
         setLoading(false);
