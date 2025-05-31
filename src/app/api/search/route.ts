@@ -4,6 +4,7 @@ import { ExpressionDataExtractor } from '@/utils/expressionDataExtractor';
 import type { ExpressionProfile, ReceptorLigandPair, SearchResult } from '@/types';
 
 const dataExtractor = new ExpressionDataExtractor();
+const MAX_PAIRS_PER_REQUEST = 50; // Process up to 50 pairs at once
 
 // Helper function to send SSE message
 function sendSSEMessage(data: any) {
@@ -26,6 +27,7 @@ export async function GET(request: Request) {
     const secondQuery = searchParams.get('secondQuery');
     const queryType = searchParams.get('queryType') as 'receptor' | 'ligand';
     const searchMode = searchParams.get('searchMode') as 'all' | 'compare';
+    const page = parseInt(searchParams.get('page') || '1');
     
     if (!query || (!searchMode) || (searchMode === 'compare' && !secondQuery)) {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
@@ -42,10 +44,11 @@ export async function GET(request: Request) {
       const receptors = query.split(',').map((r: string) => r.trim()).filter(Boolean);
       const ligands = (secondQuery as string).split(',').map((l: string) => l.trim()).filter(Boolean);
 
-      // Create all possible combinations
+      // Create combinations for current page
+      const allPairs = [];
       for (const receptor of receptors) {
         for (const ligand of ligands) {
-          pairs.push({
+          allPairs.push({
             p1_id: receptor,
             p1_name: receptor,
             p2_id: ligand,
@@ -53,19 +56,36 @@ export async function GET(request: Request) {
           });
         }
       }
+
+      // Calculate pagination
+      const startIdx = (page - 1) * MAX_PAIRS_PER_REQUEST;
+      pairs = allPairs.slice(startIdx, startIdx + MAX_PAIRS_PER_REQUEST);
+      
     } else {
-      // Search all mode - search in MongoDB
+      // Search all mode - search in MongoDB with pagination
       const searchQuery = {
         $or: queryType === 'receptor' 
           ? [{ p1_id: query }, { p1_name: { $regex: new RegExp(query, 'i') } }]
           : [{ p2_id: query }, { p2_name: { $regex: new RegExp(query, 'i') } }]
       };
 
-      pairs = await pairsCollection.find(searchQuery).toArray();
+      pairs = await pairsCollection
+        .find(searchQuery)
+        .skip((page - 1) * MAX_PAIRS_PER_REQUEST)
+        .limit(MAX_PAIRS_PER_REQUEST)
+        .toArray();
     }
 
     if (!pairs.length) {
-      return NextResponse.json({ error: 'No matching pairs found' }, { status: 404 });
+      if (page === 1) {
+        return NextResponse.json({ error: 'No matching pairs found' }, { status: 404 });
+      } else {
+        return NextResponse.json({ 
+          results: [], 
+          hasMore: false,
+          message: 'No more results' 
+        });
+      }
     }
 
     const encoder = new TextEncoder();
@@ -114,12 +134,16 @@ export async function GET(request: Request) {
           }
         }
 
-        // Sort by Pearson correlation (using combined correlation)
+        // Sort by Pearson correlation
         results.sort((a, b) => b.features.combined.pearson_corr - a.features.combined.pearson_corr);
 
-        // Send final results
+        // Send final results with pagination info
         await writer.write(
-          encoder.encode(`data: ${JSON.stringify({ results })}\n\n`)
+          encoder.encode(`data: ${JSON.stringify({ 
+            results,
+            hasMore: pairs.length === MAX_PAIRS_PER_REQUEST,
+            currentPage: page
+          })}\n\n`)
         );
       } catch (error) {
         console.error('Processing error:', error);

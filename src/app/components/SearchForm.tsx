@@ -14,6 +14,9 @@ export default function SearchForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentGene, setCurrentGene] = useState<string | null>(null);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -21,36 +24,60 @@ export default function SearchForm() {
     setError(null);
     setResults([]);
     setCurrentGene(null);
+    setProcessedCount(0);
+    setCurrentPage(1);
+    setHasMore(true);
+    
+    await fetchResults(1, true);
+  };
 
+  const fetchResults = async (page: number, isNewSearch: boolean = false) => {
     try {
+      if (isNewSearch) {
+        setProcessedCount(0);
+      }
+
       const eventSource = new EventSource(`/api/search?${new URLSearchParams({
         query,
         secondQuery: searchMode === 'compare' ? secondQuery : '',
         queryType,
-        searchMode
+        searchMode,
+        page: page.toString()
       })}`);
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.currentGene) {
           setCurrentGene(data.currentGene);
+          setProcessedCount(prev => prev + 1);
         } else if (data.results) {
-          setResults(data.results);
+          setResults(prev => isNewSearch ? data.results : [...prev, ...data.results]);
+          setHasMore(data.hasMore);
+          setCurrentPage(data.currentPage);
           eventSource.close();
           setLoading(false);
+          setProcessedCount(0);
         }
       };
 
       eventSource.onerror = (error) => {
         console.error('EventSource error:', error);
-        console.log(error)
         eventSource.close();
         setError('An error occurred while processing the data');
         setLoading(false);
+        setProcessedCount(0);
       };
     } catch (error) {
       setError(error instanceof Error ? error.message : 'An error occurred');
       setLoading(false);
+      setProcessedCount(0);
+    }
+  };
+
+  const loadMore = () => {
+    if (!loading && hasMore) {
+      setLoading(true);
+      fetchResults(currentPage + 1);
     }
   };
 
@@ -152,7 +179,7 @@ export default function SearchForm() {
               disabled={loading || (!query || (searchMode === 'compare' && !secondQuery))}
               className="px-6 py-2 bg-navy-600 text-white rounded hover:bg-navy-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Searching...' : 'Search'}
+              {loading ? 'Processing...' : 'Search'}
             </button>
           </div>
         </div>
@@ -163,9 +190,14 @@ export default function SearchForm() {
         <div className="text-center space-y-2">
           <div className="text-white">Processing expression data...</div>
           {currentGene && (
-            <div className="text-gray-300">
-              Currently processing: {currentGene}
-            </div>
+            <>
+              <div className="text-gray-300">
+                Currently processing: {currentGene}
+              </div>
+              <div className="text-gray-400 text-sm">
+                Processed {processedCount} genes in current batch
+              </div>
+            </>
           )}
         </div>
       )}
@@ -242,6 +274,19 @@ export default function SearchForm() {
               />
             </div>
           ))}
+          
+          {/* Load More Button */}
+          {hasMore && (
+            <div className="text-center mt-4">
+              <button
+                onClick={loadMore}
+                disabled={loading}
+                className="px-6 py-2 bg-navy-600 text-white rounded hover:bg-navy-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Loading...' : 'Load More Results'}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
