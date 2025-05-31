@@ -17,11 +17,13 @@ export default function SearchForm() {
   const [processedCount, setProcessedCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [errors, setErrors] = useState<string[]>([]);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setErrors([]);
     setResults([]);
     setCurrentGene(null);
     setProcessedCount(0);
@@ -35,6 +37,7 @@ export default function SearchForm() {
     try {
       if (isNewSearch) {
         setProcessedCount(0);
+        setErrors([]);
       }
 
       const eventSource = new EventSource(`/api/search?${new URLSearchParams({
@@ -54,6 +57,17 @@ export default function SearchForm() {
           setResults(prev => isNewSearch ? data.results : [...prev, ...data.results]);
           setHasMore(data.hasMore);
           setCurrentPage(data.currentPage);
+          if (data.errors) {
+            setErrors(prev => [...prev, ...data.errors]);
+          }
+          eventSource.close();
+          setLoading(false);
+          setProcessedCount(0);
+        } else if (data.error) {
+          setError(data.error);
+          if (data.details) {
+            setErrors(prev => [...prev, data.details]);
+          }
           eventSource.close();
           setLoading(false);
           setProcessedCount(0);
@@ -202,9 +216,19 @@ export default function SearchForm() {
         </div>
       )}
 
+      {/* Error Display */}
       {error && (
-        <div className="text-red-500 text-center">
-          {error}
+        <div className="text-red-500 text-center space-y-2">
+          <div className="font-medium">{error}</div>
+          {errors.length > 0 && (
+            <div className="text-sm space-y-1">
+              {errors.map((err, index) => (
+                <div key={index} className="text-red-400">
+                  {err}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

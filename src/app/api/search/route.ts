@@ -69,6 +69,16 @@ export async function GET(request: Request) {
           : [{ p2_id: query }, { p2_name: { $regex: new RegExp(query, 'i') } }]
       };
 
+      // First check if the gene exists in the database
+      const count = await pairsCollection.countDocuments(searchQuery);
+      
+      if (count === 0) {
+        const errorMessage = queryType === 'receptor'
+          ? `No receptor found with gene name or UniProt ID "${query}"`
+          : `No ligand found with gene name or UniProt ID "${query}"`;
+        return NextResponse.json({ error: errorMessage }, { status: 404 });
+      }
+
       pairs = await pairsCollection
         .find(searchQuery)
         .skip((page - 1) * MAX_PAIRS_PER_REQUEST)
@@ -96,6 +106,7 @@ export async function GET(request: Request) {
     (async () => {
       try {
         const results: SearchResult[] = [];
+        const errors: string[] = [];
         
         for (const pair of pairs) {
           try {
@@ -105,7 +116,10 @@ export async function GET(request: Request) {
             );
 
             const receptorExpr = await dataExtractor.get_expression_matrix(pair.p1_id);
-            if (!receptorExpr) continue;
+            if (!receptorExpr) {
+              errors.push(`Could not fetch expression data for receptor ${pair.p1_id}`);
+              continue;
+            }
             
             // Send update for ligand processing
             await writer.write(
@@ -113,7 +127,10 @@ export async function GET(request: Request) {
             );
             
             const ligandExpr = await dataExtractor.get_expression_matrix(pair.p2_id);
-            if (!ligandExpr) continue;
+            if (!ligandExpr) {
+              errors.push(`Could not fetch expression data for ligand ${pair.p2_id}`);
+              continue;
+            }
 
             const features = dataExtractor.compute_coexpression_features(
               receptorExpr,
@@ -129,7 +146,9 @@ export async function GET(request: Request) {
               }
             });
           } catch (error) {
-            console.error(`Error processing pair ${pair.p1_id}-${pair.p2_id}:`, error);
+            const errorMessage = `Error processing pair ${pair.p1_id}-${pair.p2_id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            console.error(errorMessage);
+            errors.push(errorMessage);
             continue;
           }
         }
@@ -137,16 +156,23 @@ export async function GET(request: Request) {
         // Sort by Pearson correlation
         results.sort((a, b) => b.features.combined.pearson_corr - a.features.combined.pearson_corr);
 
-        // Send final results with pagination info
+        // Send final results with pagination info and any errors
         await writer.write(
           encoder.encode(`data: ${JSON.stringify({ 
             results,
             hasMore: pairs.length === MAX_PAIRS_PER_REQUEST,
-            currentPage: page
+            currentPage: page,
+            errors: errors.length > 0 ? errors : undefined
           })}\n\n`)
         );
       } catch (error) {
         console.error('Processing error:', error);
+        await writer.write(
+          encoder.encode(`data: ${JSON.stringify({ 
+            error: 'Error processing results',
+            details: error instanceof Error ? error.message : 'Unknown error'
+          })}\n\n`)
+        );
       } finally {
         await writer.close();
       }
@@ -162,6 +188,9 @@ export async function GET(request: Request) {
     
   } catch (error) {
     console.error('Search error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 } 
