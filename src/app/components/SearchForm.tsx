@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { SearchResult } from '@/types';
+import ExpressionPlot from './ExpressionPlot';
 
 export default function SearchForm() {
   const [searchMode, setSearchMode] = useState<'all' | 'compare'>('all');
@@ -179,42 +180,65 @@ export default function SearchForm() {
         <div className="space-y-6">
           {results.map((result, index) => (
             <div key={index} className="border border-navy-600 rounded p-4 bg-navy-800">
-              <div className="mb-4">
+              <div className="mb-6">
                 <h3 className="text-xl font-semibold text-white mb-2">
-                  {result.pair.p1_name} ({result.pair.p1_id}) - {result.pair.p2_name} ({result.pair.p2_id})
+                  {/* Receptor info */}
+                  <span className="inline-block">
+                    <span className="text-blue-400">{result.expression.receptor.gene_name}</span>
+                    <span className="text-gray-400 text-base ml-2">
+                      (UniProt: {result.expression.receptor.uniprot_id})
+                    </span>
+                  </span>
+                  {/* Separator */}
+                  <span className="mx-3 text-gray-400">⟷</span>
+                  {/* Ligand info */}
+                  <span className="inline-block">
+                    <span className="text-emerald-400">{result.expression.ligand.gene_name}</span>
+                    <span className="text-gray-400 text-base ml-2">
+                      (UniProt: {result.expression.ligand.uniprot_id})
+                    </span>
+                  </span>
                 </h3>
-                <div className="text-gray-300">
-                  <h4 className="font-medium mb-2">Correlation Metrics:</h4>
-                  <ul className="space-y-1">
-                    <li>Pearson Correlation: {result.features?.pearson_corr?.toFixed(3) ?? 'N/A'}</li>
-                    <li>Cosine Similarity: {result.features?.cosine_sim?.toFixed(3) ?? 'N/A'}</li>
-                    <li>Jaccard Index: {result.features?.jaccard_index?.toFixed(3) ?? 'N/A'}</li>
-                  </ul>
+                
+                {/* Correlation Statistics */}
+                <div className="grid grid-cols-3 gap-4 text-gray-300">
+                  {/* Combined Stats */}
+                  <div className="p-4 border border-navy-600 rounded">
+                    <h4 className="font-medium mb-2">Combined Correlation:</h4>
+                    <ul className="space-y-1">
+                      <li>Pearson: {result.features.combined.pearson_corr?.toFixed(3) ?? 'N/A'}</li>
+                      <li>Cosine: {result.features.combined.cosine_sim?.toFixed(3) ?? 'N/A'}</li>
+                      <li>Jaccard: {result.features.combined.jaccard_index?.toFixed(3) ?? 'N/A'}</li>
+                    </ul>
+                  </div>
+                  
+                  {/* Tissue Stats */}
+                  <div className="p-4 border border-navy-600 rounded">
+                    <h4 className="font-medium mb-2">Tissue Correlation:</h4>
+                    <ul className="space-y-1">
+                      <li>Pearson: {result.features.tissue.pearson_corr?.toFixed(3) ?? 'N/A'}</li>
+                      <li>Cosine: {result.features.tissue.cosine_sim?.toFixed(3) ?? 'N/A'}</li>
+                      <li>Jaccard: {result.features.tissue.jaccard_index?.toFixed(3) ?? 'N/A'}</li>
+                    </ul>
+                  </div>
+                  
+                  {/* Cell Stats */}
+                  <div className="p-4 border border-navy-600 rounded">
+                    <h4 className="font-medium mb-2">Cell Type Correlation:</h4>
+                    <ul className="space-y-1">
+                      <li>Pearson: {result.features.cell.pearson_corr?.toFixed(3) ?? 'N/A'}</li>
+                      <li>Cosine: {result.features.cell.cosine_sim?.toFixed(3) ?? 'N/A'}</li>
+                      <li>Jaccard: {result.features.cell.jaccard_index?.toFixed(3) ?? 'N/A'}</li>
+                    </ul>
+                  </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <h4 className="font-medium mb-2 text-gray-300">
-                    {searchMode === 'compare' ? 'Receptor' : queryType === 'receptor' ? 'Receptor' : 'Ligand'} Expression:
-                  </h4>
-                  <img
-                    src={result.plots.receptor}
-                    alt={`Expression profile for ${result.pair.p1_name}`}
-                    className="w-full rounded border border-navy-600"
-                  />
-                </div>
-                <div>
-                  <h4 className="font-medium mb-2 text-gray-300">
-                    {searchMode === 'compare' ? 'Ligand' : queryType === 'receptor' ? 'Ligand' : 'Receptor'} Expression:
-                  </h4>
-                  <img
-                    src={result.plots.ligand}
-                    alt={`Expression profile for ${result.pair.p2_name}`}
-                    className="w-full rounded border border-navy-600"
-                  />
-                </div>
-              </div>
+              {/* Expression Plots */}
+              <ExpressionPlot
+                receptor={result.expression.receptor}
+                ligand={result.expression.ligand}
+              />
             </div>
           ))}
         </div>

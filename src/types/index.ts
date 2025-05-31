@@ -1,9 +1,14 @@
 export interface ExpressionProfile {
-  uniprot_id: string;
+  gene_id: string;
   gene_name: string;
-  tissue_data: { [key: string]: number };
-  cell_type_data: { [key: string]: number };
-  timestamp: Date;
+  uniprot_id: string;
+  tissue_expression: ExpressionData[];
+  cell_expression: ExpressionData[];
+}
+
+export interface ExpressionData {
+  name: string;
+  value: number;
 }
 
 export interface ReceptorLigandPair {
@@ -17,17 +22,19 @@ export interface CoexpressionFeatures {
   pearson_corr: number;
   cosine_sim: number;
   jaccard_index: number;
-  l2_norm_diff: number;
-  overlap_count: number;
-  shared_top10_count: number;
-  common_types: number;
+}
+
+export interface ExpressionStats {
+  tissue: CoexpressionFeatures;
+  cell: CoexpressionFeatures;
+  combined: CoexpressionFeatures;
 }
 
 export interface SearchResult {
   pair: ReceptorLigandPair;
-  features: CoexpressionFeatures;
-  plots: {
-    receptor: string;  // URL to plot image
-    ligand: string;    // URL to plot image
+  features: ExpressionStats;
+  expression: {
+    receptor: ExpressionProfile;
+    ligand: ExpressionProfile;
   };
 } 

@@ -1,4 +1,4 @@
-import type { ExpressionProfile, CoexpressionFeatures } from '@/types';
+import { ExpressionProfile, ExpressionData, CoexpressionFeatures, ExpressionStats } from '@/types';
 
 export class ExpressionDataExtractor {
   private baseUrl = 'https://www.proteinatlas.org';
@@ -66,169 +66,130 @@ export class ExpressionDataExtractor {
     return `Single Cell Type RNA - ${cellTypeName} [nTPM]`;
   }
 
-  async get_expression_matrix(uniprotId: string): Promise<[number[], number[]] | null> {
+  private computeFeatures(data1: number[], data2: number[]): CoexpressionFeatures {
+    // Compute Pearson correlation
+    const mean1 = data1.reduce((a, b) => a + b, 0) / data1.length;
+    const mean2 = data2.reduce((a, b) => a + b, 0) / data2.length;
+    
+    const numerator = data1.reduce((sum, x, i) => sum + (x - mean1) * (data2[i] - mean2), 0);
+    const denom1 = Math.sqrt(data1.reduce((sum, x) => sum + Math.pow(x - mean1, 2), 0));
+    const denom2 = Math.sqrt(data2.reduce((sum, x) => sum + Math.pow(x - mean2, 2), 0));
+    
+    const pearson = numerator / (denom1 * denom2);
+
+    // Compute cosine similarity
+    const dotProduct = data1.reduce((sum, x, i) => sum + x * data2[i], 0);
+    const norm1 = Math.sqrt(data1.reduce((sum, x) => sum + x * x, 0));
+    const norm2 = Math.sqrt(data2.reduce((sum, x) => sum + x * x, 0));
+    const cosine = dotProduct / (norm1 * norm2);
+
+    // Compute Jaccard index (using threshold of mean value)
+    const threshold1 = mean1;
+    const threshold2 = mean2;
+    let intersection = 0;
+    let union = 0;
+    
+    for (let i = 0; i < data1.length; i++) {
+      const above1 = data1[i] > threshold1;
+      const above2 = data2[i] > threshold2;
+      if (above1 && above2) intersection++;
+      if (above1 || above2) union++;
+    }
+    
+    const jaccard = union === 0 ? 0 : intersection / union;
+
+    return {
+      pearson_corr: pearson,
+      cosine_sim: cosine,
+      jaccard_index: jaccard
+    };
+  }
+
+  async get_expression_matrix(gene_id: string): Promise<ExpressionProfile | null> {
     try {
-      // Build the search URL with parameters
-      const params = new URLSearchParams({
-        search: uniprotId,
-        format: 'json',
-        columns: ['g', 'gs', 'up', ...this.tissueColumns, ...this.cellTypeColumns].join(','),
-        compress: 'no'
-      });
+      // Build the search URL with parameters
+      const params = new URLSearchParams({
+        search:gene_id,
+        format: 'json',
+        columns: ['g', 'gs', 'up', ...this.tissueColumns, ...this.cellTypeColumns].join(','),
+        compress: 'no'
+      });
 
-      const response = await fetch(`${this.baseUrl}/api/search_download.php?${params}`);
+      const response = await fetch(`${this.baseUrl}/api/search_download.php?${params}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch data: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data || !data[0]) {
+        console.log(`No data found for UniProt ID: ${gene_id}`);
+        return null;
+      }
       
-      if (!response.ok) {
-        throw new Error(`Failed to fetch data: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      if (!data || !data[0]) {
-        console.log(`No data found for UniProt ID: ${uniprotId}`);
-        return null;
-      }
-
-      console.log(data[0]['g']);
-
-      // Extract tissue and cell type data
       const entry = data[0];
-      const tissueData: number[] = [];
-      const cellTypeData: number[] = [];
-
-      // Process tissue data
-      for (const column of this.tissueColumns) {
-        const apiColumnName = `Tissue RNA - ${column.replace('t_RNA_', '').replace(/_/g, ' ')} [nTPM]`;
-        const value = parseFloat(entry[apiColumnName] || '0');
-        tissueData.push(isNaN(value) ? 0 : value);
-      }
-
-      // Process cell type data
-      for (const column of this.cellTypeColumns) {
-        const apiColumnName = `Single Cell Type RNA - ${column.replace('sc_RNA_', '').replace(/_/g, ' ')} [nTPM]`;
-        const value = parseFloat(entry[apiColumnName] || '0');
-        cellTypeData.push(isNaN(value) ? 0 : value);
-      }
       
-      // Log first 5 tissue values with their names
-      console.log('First 5 tissue expression values:');
-      this.tissueColumns.slice(0, 5).forEach((column: string, i: number) => {
-        const apiColumnName = `Tissue RNA - ${column.replace('t_RNA_', '').replace(/_/g, ' ')} [nTPM]`;
-        console.log(`${apiColumnName}: ${tissueData[i]}`);
+      // Process tissue RNA data
+      const tissue_expression: ExpressionData[] = [];
+      Object.entries(entry).forEach(([key, value]) => {
+        if (key.startsWith('Tissue RNA - ') && key.endsWith('[nTPM]')) {
+          const tissue = key.replace('Tissue RNA - ', '').replace(' [nTPM]', '');
+          tissue_expression.push({
+            name: tissue,
+            value: parseFloat(value as string) || 0
+          });
+        }
       });
 
-      // Log first 5 cell type values with their names
-      console.log('\nFirst 5 cell type expression values:');
-      this.cellTypeColumns.slice(0, 5).forEach((column: string, i: number) => {
-        const apiColumnName = `Single Cell Type RNA - ${column.replace('sc_RNA_', '').replace(/_/g, ' ')} [nTPM]`;
-        console.log(`${apiColumnName}: ${cellTypeData[i]}`);
+      // Process single cell RNA data
+      const cell_expression: ExpressionData[] = [];
+      Object.entries(entry).forEach(([key, value]) => {
+        if (key.startsWith('Single Cell Type RNA - ') && key.endsWith('[nTPM]')) {
+          const cell = key.replace('Single Cell Type RNA - ', '').replace(' [nTPM]', '');
+          cell_expression.push({
+            name: cell,
+            value: parseFloat(value as string) || 0
+          });
+        }
       });
+      //console.log(entry)
+      console.log(entry.Gene)
+      console.log(entry.Gene)
 
-      return [tissueData, cellTypeData];
-
+      return {
+        gene_id,
+        gene_name: entry.Gene,
+        uniprot_id: entry.Uniprot,
+        tissue_expression,
+        cell_expression
+      };
     } catch (error) {
-      console.error(`Error fetching data for ${uniprotId}:`, error);
+      console.error(`Error fetching expression data for ${gene_id}:`, error);
       return null;
     }
   }
 
   compute_coexpression_features(
-    receptorExpr: [number[], number[]],
-    ligandExpr: [number[], number[]]
-  ): CoexpressionFeatures | null {
-    try {
-      const [receptorTissue, receptorCell] = receptorExpr;
-      const [ligandTissue, ligandCell] = ligandExpr;
-
-      // Compute tissue features
-      const tissueFeatures = this.computeFeatures(receptorTissue, ligandTissue);
-      const cellFeatures = this.computeFeatures(receptorCell, ligandCell);
-
-      if (!tissueFeatures || !cellFeatures) return null;
-
-      // Combine and average the features
-      return {
-        pearson_corr: (tissueFeatures.pearson_corr + cellFeatures.pearson_corr) / 2,
-        cosine_sim: (tissueFeatures.cosine_sim + cellFeatures.cosine_sim) / 2,
-        jaccard_index: (tissueFeatures.jaccard_index + cellFeatures.jaccard_index) / 2,
-        l2_norm_diff: (tissueFeatures.l2_norm_diff + cellFeatures.l2_norm_diff) / 2,
-        overlap_count: Math.round((tissueFeatures.overlap_count + cellFeatures.overlap_count) / 2),
-        shared_top10_count: Math.round((tissueFeatures.shared_top10_count + cellFeatures.shared_top10_count) / 2),
-        common_types: tissueFeatures.common_types + cellFeatures.common_types
-      };
-
-    } catch (error) {
-      console.error('Error computing coexpression features:', error);
-      return null;
-    }
-  }
-
-  private computeFeatures(vec1: number[], vec2: number[]): CoexpressionFeatures | null {
-    if (!vec1.length || !vec2.length || vec1.length !== vec2.length) return null;
-
-    // Calculate mean for vectors
-    const mean1 = vec1.reduce((a, b) => a + b, 0) / vec1.length;
-    const mean2 = vec2.reduce((a, b) => a + b, 0) / vec2.length;
-
-    // Calculate Pearson correlation
-    let num = 0;
-    let den1 = 0;
-    let den2 = 0;
+    profile1: ExpressionProfile,
+    profile2: ExpressionProfile
+  ): ExpressionStats {
+    // Extract values for tissue expression
+    const tissue1 = profile1.tissue_expression.map(t => t.value);
+    const tissue2 = profile2.tissue_expression.map(t => t.value);
     
-    for (let i = 0; i < vec1.length; i++) {
-      const diff1 = vec1[i] - mean1;
-      const diff2 = vec2[i] - mean2;
-      num += diff1 * diff2;
-      den1 += diff1 * diff1;
-      den2 += diff2 * diff2;
-    }
-
-    const pearson_corr = num / (Math.sqrt(den1) * Math.sqrt(den2));
-
-    // Calculate cosine similarity
-    const dotProduct = vec1.reduce((sum, v1, i) => sum + v1 * vec2[i], 0);
-    const norm1 = Math.sqrt(vec1.reduce((sum, v) => sum + v * v, 0));
-    const norm2 = Math.sqrt(vec2.reduce((sum, v) => sum + v * v, 0));
-    const cosine_sim = dotProduct / (norm1 * norm2);
-
-    // Calculate binary metrics using median as threshold
-    const median1 = [...vec1].sort((a, b) => a - b)[Math.floor(vec1.length / 2)];
-    const median2 = [...vec2].sort((a, b) => a - b)[Math.floor(vec2.length / 2)];
+    // Extract values for cell expression
+    const cell1 = profile1.cell_expression.map(c => c.value);
+    const cell2 = profile2.cell_expression.map(c => c.value);
     
-    const vec1_binary = vec1.map(v => v > median1 ? 1 : 0);
-    const vec2_binary = vec2.map(v => v > median2 ? 1 : 0);
-
-    let overlap_count = 0;
-    let union_count = 0;
-    
-    for (let i = 0; i < vec1_binary.length; i++) {
-      if (vec1_binary[i] && vec2_binary[i]) overlap_count++;
-      if (vec1_binary[i] || vec2_binary[i]) union_count++;
-    }
-
-    // Get indices of top 10 values
-    const top10_indices1 = vec1
-      .map((v, i) => ({ value: v, index: i }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 10)
-      .map(item => item.index);
-    
-    const top10_indices2 = vec2
-      .map((v, i) => ({ value: v, index: i }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 10)
-      .map(item => item.index);
-
-    const shared_top10_count = top10_indices1.filter(i => top10_indices2.includes(i)).length;
+    // Combine all values for overall correlation
+    const all1 = [...tissue1, ...cell1];
+    const all2 = [...tissue2, ...cell2];
 
     return {
-      pearson_corr,
-      cosine_sim,
-      jaccard_index: union_count > 0 ? overlap_count / union_count : 0,
-      l2_norm_diff: Math.sqrt(vec1.reduce((sum, v1, i) => sum + Math.pow(v1 - vec2[i], 2), 0)),
-      overlap_count,
-      shared_top10_count,
-      common_types: vec1.length
+      tissue: this.computeFeatures(tissue1, tissue2),
+      cell: this.computeFeatures(cell1, cell2),
+      combined: this.computeFeatures(all1, all2)
     };
   }
 } 

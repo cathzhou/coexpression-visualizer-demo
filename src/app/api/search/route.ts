@@ -85,6 +85,7 @@ export async function GET(request: Request) {
             );
 
             const receptorExpr = await dataExtractor.get_expression_matrix(pair.p1_id);
+            if (!receptorExpr) continue;
             
             // Send update for ligand processing
             await writer.write(
@@ -92,22 +93,19 @@ export async function GET(request: Request) {
             );
             
             const ligandExpr = await dataExtractor.get_expression_matrix(pair.p2_id);
-            
-            if (!receptorExpr || !ligandExpr) continue;
+            if (!ligandExpr) continue;
 
             const features = dataExtractor.compute_coexpression_features(
               receptorExpr,
               ligandExpr
             );
 
-            if (!features) continue;
-
             results.push({
               pair,
               features,
-              plots: {
-                receptor: `/data/expression_cache/plots/${pair.p1_id}_expression.png`,
-                ligand: `/data/expression_cache/plots/${pair.p2_id}_expression.png`
+              expression: {
+                receptor: receptorExpr,
+                ligand: ligandExpr
               }
             });
           } catch (error) {
@@ -116,8 +114,8 @@ export async function GET(request: Request) {
           }
         }
 
-        // Sort by Pearson correlation
-        results.sort((a, b) => b.features.pearson_corr - a.features.pearson_corr);
+        // Sort by Pearson correlation (using combined correlation)
+        results.sort((a, b) => b.features.combined.pearson_corr - a.features.combined.pearson_corr);
 
         // Send final results
         await writer.write(
