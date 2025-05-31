@@ -57,10 +57,42 @@ export async function GET(request: Request) {
         }
       }
 
+      if (allPairs.length === 0) {
+        return new Response(
+          `data: ${JSON.stringify({ 
+            error: "No valid gene pairs to analyze",
+            details: "Please enter at least one receptor and one ligand."
+          })}\n\n`,
+          {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+            },
+          }
+        );
+      }
+
       // Calculate pagination
       const startIdx = (page - 1) * MAX_PAIRS_PER_REQUEST;
       pairs = allPairs.slice(startIdx, startIdx + MAX_PAIRS_PER_REQUEST);
       
+      if (pairs.length === 0) {
+        return new Response(
+          `data: ${JSON.stringify({ 
+            error: "No more pairs to analyze",
+            details: "All specified gene pairs have been processed."
+          })}\n\n`,
+          {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+            },
+          }
+        );
+      }
+
     } else {
       // Search all mode - check if the input gene exists
       const searchField = queryType === 'receptor' ? 'p1' : 'p2';
@@ -150,7 +182,10 @@ export async function GET(request: Request) {
 
             const receptorExpr = await dataExtractor.get_expression_matrix(receptorId);
             if (!receptorExpr) {
-              errors.push(`Could not fetch expression data for receptor ${receptorId}`);
+              const errorMsg = searchMode === 'compare' 
+                ? `Could not fetch expression data for receptor "${receptorId}". Please verify this gene name or UniProt ID exists.`
+                : `Could not fetch expression data for receptor ${receptorId}`;
+              errors.push(errorMsg);
               continue;
             }
             
@@ -162,7 +197,10 @@ export async function GET(request: Request) {
             
             const ligandExpr = await dataExtractor.get_expression_matrix(ligandId);
             if (!ligandExpr) {
-              errors.push(`Could not fetch expression data for ligand ${ligandId}`);
+              const errorMsg = searchMode === 'compare'
+                ? `Could not fetch expression data for ligand "${ligandId}". Please verify this gene name or UniProt ID exists.`
+                : `Could not fetch expression data for ligand ${ligandId}`;
+              errors.push(errorMsg);
               continue;
             }
 
@@ -180,7 +218,9 @@ export async function GET(request: Request) {
               }
             });
           } catch (error) {
-            const errorMessage = `Error processing pair ${pair.p1_id}-${pair.p2_id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            const errorMessage = searchMode === 'compare'
+              ? `Error processing pair "${pair.p1_id}-${pair.p2_id}": ${error instanceof Error ? error.message : 'Unknown error'}`
+              : `Error processing pair ${pair.p1_id}-${pair.p2_id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
             console.error(errorMessage);
             errors.push(errorMessage);
             continue;
@@ -189,6 +229,18 @@ export async function GET(request: Request) {
 
         // Sort by Pearson correlation
         results.sort((a, b) => b.features.combined.pearson_corr - a.features.combined.pearson_corr);
+
+        // If in compare mode and no results but we have errors, send a more specific error
+        if (searchMode === 'compare' && results.length === 0 && errors.length > 0) {
+          await writer.write(
+            encoder.encode(`data: ${JSON.stringify({ 
+              error: "No valid expression data found for any gene pairs",
+              details: "None of the specified gene pairs could be analyzed. Please check the gene names or UniProt IDs.",
+              errors: errors
+            })}\n\n`)
+          );
+          return;
+        }
 
         // Send final results with pagination info and any errors
         await writer.write(
