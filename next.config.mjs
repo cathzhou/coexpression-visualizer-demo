@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    experimental: {
-      serverExternalPackages: ["pdf-parse"],
-    },    
+    // Add any valid Next.js config options here if needed
 };
 
 export default nextConfig;

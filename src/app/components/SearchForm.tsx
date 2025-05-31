@@ -122,7 +122,7 @@ export default function SearchForm() {
           {/* Search Instructions */}
           <div className="text-center text-gray-300 text-sm">
             {searchMode === 'compare' ? (
-              <p>Enter comma-separated lists of genes (e.g., "AGTR2, BKRB2" and "CCL16, DFB4A")</p>
+              <p>Enter single gene or comma-separated lists of genes (UniProt IDs also accepted)</p>
             ) : (
               <p>Enter a gene name or UniProt ID to search all possible pairs</p>
             )}
