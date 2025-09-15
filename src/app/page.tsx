@@ -1,6 +1,7 @@
 'use client';
 
 import SearchForm from '@/app/components/SearchForm';
+import Link from 'next/link';
 
 export default function Home() {
   return (
@@ -12,6 +13,17 @@ export default function Home() {
         <p className="text-gray-300 text-center mb-8 max-w-2xl mx-auto">
           Enter a receptor or ligand name (or UniProt ID) to explore expression profiles and discover co-expression patterns across tissues and cell types.
         </p>
+
+        {/* Navigation Links */}
+        <div className="flex justify-center space-x-4 mb-8">
+          <Link
+            href="/tissue-cell-analysis"
+            className="px-6 py-3 bg-navy-700 text-white rounded-lg hover:bg-navy-600 transition-colors"
+          >
+            🧬 Tissue & Cell-Specific Analysis
+          </Link>
+        </div>
+
         <SearchForm />
       </div>
     </div>

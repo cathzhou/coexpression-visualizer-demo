@@ -56,4 +56,42 @@ export interface SearchResult {
     receptor: ExpressionProfile;
     ligand: ExpressionProfile;
   };
+}
+
+// New types for tissue and cell-specific analysis
+export interface TissueSpecificCorrelation {
+  tissue: string;
+  pearson_corr: number;
+  cosine_sim: number;
+  jaccard_index: number;
+  l2_norm_diff: number;
+  overlap_count: number;
+}
+
+export interface CellSpecificCorrelation {
+  cell_type: string;
+  pearson_corr: number;
+  cosine_sim: number;
+  jaccard_index: number;
+  l2_norm_diff: number;
+  overlap_count: number;
+}
+
+export interface TissueCellAnalysisResult {
+  p1_name: string;
+  p1_uniprot: string;
+  p1_ensembl: string;
+  p2_name: string;
+  p2_uniprot: string;
+  p2_ensembl: string;
+  pair_id: string;
+  tissue_correlations: TissueSpecificCorrelation[];
+  cell_correlations: CellSpecificCorrelation[];
+}
+
+export interface CellTypeInfo {
+  name: string;
+  cluster: string;
+  tissue: string;
+  combined_name: string;
 } 
