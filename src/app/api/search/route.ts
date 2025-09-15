@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import clientPromise from '@/utils/mongodb';
 import { ExpressionDataExtractor } from '@/utils/expressionDataExtractor';
-import type { ExpressionProfile, ReceptorLigandPair, SearchResult } from '@/types';
+import type { ExpressionProfile, ReceptorLigandPair, SearchResult, TissueSpecificResult, TissueSpecificFeatures } from '@/types';
+import fs from 'fs';
+import path from 'path';
 
 const dataExtractor = new ExpressionDataExtractor();
 const MAX_PAIRS_PER_REQUEST = 50; // Process up to 50 pairs at once
@@ -20,17 +22,125 @@ function sendSSEMessage(data: any) {
   );
 }
 
+// Function to handle tissue-specific search
+async function handleTissueSpecificSearch(query: string, secondQuery: string | null, selectedTissue: string, page: number) {
+  try {
+    // Parse gene lists
+    const genes1 = query.split(',').map((g: string) => g.trim()).filter(Boolean);
+    const genes2 = secondQuery ? secondQuery.split(',').map((g: string) => g.trim()).filter(Boolean) : [];
+    
+    // Read tissue-specific CSV data
+    const csvPath = '/Users/catherinez/VSC/ml-modeling-deorphanize/data/tissue_specific_coexpression_features.csv';
+    const csvData = fs.readFileSync(csvPath, 'utf-8');
+    const lines = csvData.trim().split('\n');
+    const headers = lines[0].split(',');
+    
+    // Find tissue column indices
+    const tissuePrefix = selectedTissue + '_';
+    const pearsonIdx = headers.findIndex(h => h === tissuePrefix + 'pearson_corr');
+    const cosineIdx = headers.findIndex(h => h === tissuePrefix + 'cosine_sim');
+    const jaccardIdx = headers.findIndex(h => h === tissuePrefix + 'jaccard_index');
+    const l2Idx = headers.findIndex(h => h === tissuePrefix + 'l2_norm_diff');
+    const overlapIdx = headers.findIndex(h => h === tissuePrefix + 'overlap_count');
+    
+    if (pearsonIdx === -1) {
+      return sendSSEMessage({ error: `Tissue "${selectedTissue}" not found in data` });
+    }
+    
+    // Filter rows based on gene queries
+    const results: TissueSpecificResult[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+      const row = lines[i].split(',');
+      const p1Name = row[0];
+      const p1Uniprot = row[1];
+      const p1Ensembl = row[2];
+      const p2Name = row[3];
+      const p2Uniprot = row[4];
+      const p2Ensembl = row[5];
+      const pairId = row[6];
+      
+      // Check if this pair matches our query
+      const matchesQuery = genes1.some(g => 
+        p1Name.toLowerCase().includes(g.toLowerCase()) || 
+        p1Uniprot.toLowerCase().includes(g.toLowerCase()) ||
+        p2Name.toLowerCase().includes(g.toLowerCase()) || 
+        p2Uniprot.toLowerCase().includes(g.toLowerCase())
+      );
+      
+      const matchesSecondQuery = !genes2.length || genes2.some(g => 
+        p1Name.toLowerCase().includes(g.toLowerCase()) || 
+        p1Uniprot.toLowerCase().includes(g.toLowerCase()) ||
+        p2Name.toLowerCase().includes(g.toLowerCase()) || 
+        p2Uniprot.toLowerCase().includes(g.toLowerCase())
+      );
+      
+      if (matchesQuery && matchesSecondQuery) {
+        const tissueFeatures: Record<string, TissueSpecificFeatures> = {};
+        tissueFeatures[selectedTissue] = {
+          pearson_corr: parseFloat(row[pearsonIdx]) || 0,
+          cosine_sim: parseFloat(row[cosineIdx]) || 0,
+          jaccard_index: parseFloat(row[jaccardIdx]) || 0,
+          l2_norm_diff: parseFloat(row[l2Idx]) || 0,
+          overlap_count: parseInt(row[overlapIdx]) || 0
+        };
+        
+        results.push({
+          p1_name: p1Name,
+          p1_uniprot: p1Uniprot,
+          p1_ensembl: p1Ensembl,
+          p2_name: p2Name,
+          p2_uniprot: p2Uniprot,
+          p2_ensembl: p2Ensembl,
+          pair_id: pairId,
+          tissue_features: tissueFeatures
+        });
+      }
+    }
+    
+    // Sort by Pearson correlation descending
+    results.sort((a, b) => 
+      (b.tissue_features[selectedTissue]?.pearson_corr || 0) - 
+      (a.tissue_features[selectedTissue]?.pearson_corr || 0)
+    );
+    
+    // Pagination
+    const startIdx = (page - 1) * MAX_PAIRS_PER_REQUEST;
+    const paginatedResults = results.slice(startIdx, startIdx + MAX_PAIRS_PER_REQUEST);
+    const hasMore = results.length > startIdx + MAX_PAIRS_PER_REQUEST;
+    
+    return sendSSEMessage({
+      tissueResults: paginatedResults,
+      hasMore,
+      currentPage: page
+    });
+    
+  } catch (error) {
+    console.error('Tissue-specific search error:', error);
+    return sendSSEMessage({ 
+      error: 'Error processing tissue-specific search',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('query');
     const secondQuery = searchParams.get('secondQuery');
     const queryType = searchParams.get('queryType') as 'receptor' | 'ligand';
-    const searchMode = searchParams.get('searchMode') as 'all' | 'compare';
+    const searchMode = searchParams.get('searchMode') as 'all' | 'compare' | 'tissue-specific';
+    const selectedTissue = searchParams.get('selectedTissue');
     const page = parseInt(searchParams.get('page') || '1');
     
-    if (!query || (!searchMode) || (searchMode === 'compare' && !secondQuery)) {
+    if (!query || (!searchMode) || (searchMode === 'compare' && !secondQuery) || (searchMode === 'tissue-specific' && !selectedTissue)) {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
+    }
+
+    // Handle tissue-specific search mode
+    if (searchMode === 'tissue-specific') {
+      return handleTissueSpecificSearch(query, secondQuery, selectedTissue, page);
     }
 
     const client = await clientPromise;

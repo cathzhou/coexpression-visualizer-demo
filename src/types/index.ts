@@ -30,6 +30,25 @@ export interface ExpressionStats {
   combined: CoexpressionFeatures;
 }
 
+export interface TissueSpecificFeatures {
+  pearson_corr: number;
+  cosine_sim: number;
+  jaccard_index: number;
+  l2_norm_diff: number;
+  overlap_count: number;
+}
+
+export interface TissueSpecificResult {
+  p1_name: string;
+  p1_uniprot: string;
+  p1_ensembl: string;
+  p2_name: string;
+  p2_uniprot: string;
+  p2_ensembl: string;
+  pair_id: string;
+  tissue_features: Record<string, TissueSpecificFeatures>;
+}
+
 export interface SearchResult {
   pair: ReceptorLigandPair;
   features: ExpressionStats;
