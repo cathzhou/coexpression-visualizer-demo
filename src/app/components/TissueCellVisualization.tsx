@@ -9,10 +9,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Cell,
-  PieChart,
-  Pie,
-  Legend
+  Cell
 } from 'recharts';
 import {
   TissueCellAnalysisResult,
