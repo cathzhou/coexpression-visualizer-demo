@@ -16,20 +16,16 @@ if (!MONGODB_URI) {
 }
 
 interface ExpressionRecord {
-  gene: string;
-  gene_name: string;
-  tissue: string;
-  cluster: string;
-  cell_type: string;
-  read_count: number;
-  nTPM: number;
-  // Computed fields for easier querying
-  cell_type_full: string; // cell_type + "_" + cluster
-  tissue_cell_combo: string; // tissue + "_" + cell_type + "_" + cluster
+  g: string;         // gene (shortened field name)
+  gn: string;        // gene_name
+  t: string;         // tissue
+  c: string;         // cluster
+  ct: string;        // cell_type
+  n: number;         // nTPM
 }
 
 async function importExpressionData() {
-  const client = new MongoClient(MONGODB_URI);
+  const client = new MongoClient(MONGODB_URI!);
 
   try {
     console.log('Connecting to MongoDB...');
@@ -56,7 +52,7 @@ async function importExpressionData() {
     });
 
     let lineCount = 0;
-    let batchSize = 500; // Reduced batch size to avoid 16MB limit
+    let batchSize = 1000; // Increased batch size since records are smaller now
     let batch: ExpressionRecord[] = [];
     let isFirstLine = true;
     let totalInserted = 0;
@@ -82,21 +78,18 @@ async function importExpressionData() {
 
       const values = trimmedLine.split('\t');
 
-      if (values.length < 7) {
+      if (values.length < 6) {
         console.warn(`Skipping invalid line ${lineCount}: ${line}`);
         continue;
       }
 
       const record: ExpressionRecord = {
-        gene: values[0],
-        gene_name: values[1],
-        tissue: values[2],
-        cluster: values[3],
-        cell_type: values[4],
-        read_count: parseInt(values[5]) || 0,
-        nTPM: parseFloat(values[6]) || 0,
-        cell_type_full: `${values[4]}_${values[3]}`,
-        tissue_cell_combo: `${values[2]}_${values[4]}_${values[3]}`
+        g: values[0],      // gene
+        gn: values[1],     // gene_name
+        t: values[2],      // tissue
+        c: values[3],      // cluster
+        ct: values[4],     // cell_type
+        n: parseFloat(values[5]) || 0  // nTPM
       };
 
       batch.push(record);
@@ -150,23 +143,23 @@ async function importExpressionData() {
     // Create indexes for efficient querying
     console.log('Creating indexes...');
 
-    await collection.createIndex({ gene: 1, tissue: 1 });
-    await collection.createIndex({ gene_name: 1, tissue: 1 });
-    await collection.createIndex({ gene: 1, cell_type_full: 1 });
-    await collection.createIndex({ gene_name: 1, cell_type_full: 1 });
-    await collection.createIndex({ gene: 1, tissue: 1, cell_type: 1 });
-    await collection.createIndex({ gene_name: 1, tissue: 1, cell_type: 1 });
-    await collection.createIndex({ tissue: 1 });
-    await collection.createIndex({ cell_type: 1 });
-    await collection.createIndex({ tissue_cell_combo: 1 });
+    // Create compound indexes for optimal query performance
+    await collection.createIndex({ gn: 1, g: 1 });       // Combined gene lookup
+    await collection.createIndex({ gn: 1, t: 1 });       // gene_name, tissue
+    await collection.createIndex({ g: 1, t: 1 });        // gene, tissue
+    await collection.createIndex({ gn: 1, ct: 1 });      // gene_name, cell_type
+    await collection.createIndex({ g: 1, ct: 1 });       // gene, cell_type
+    await collection.createIndex({ t: 1, ct: 1 });       // tissue, cell_type
+    await collection.createIndex({ ct: 1 });             // cell_type
+    await collection.createIndex({ t: 1 });              // tissue
 
     console.log('Indexes created successfully!');
 
     // Print some stats
     const totalCount = await collection.countDocuments();
-    const uniqueGenes = await collection.distinct('gene');
-    const uniqueTissues = await collection.distinct('tissue');
-    const uniqueCellTypes = await collection.distinct('cell_type_full');
+    const uniqueGenes = await collection.distinct('g');
+    const uniqueTissues = await collection.distinct('t');
+    const uniqueCellTypes = await collection.distinct('ct');
 
     console.log('\nImport Statistics:');
     console.log(`Total records in database: ${totalCount}`);

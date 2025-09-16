@@ -2,15 +2,12 @@ import { NextResponse } from 'next/server';
 import clientPromise from '@/utils/mongodb';
 
 interface ExpressionRecord {
-  gene: string;
-  gene_name: string;
-  tissue: string;
-  cluster: string;
-  cell_type: string;
-  read_count: number;
-  nTPM: number;
-  cell_type_full: string;
-  tissue_cell_combo: string;
+  g: string;         // gene
+  gn: string;        // gene_name
+  t: string;         // tissue
+  c: string;         // cluster
+  ct: string;        // cell_type
+  n: number;         // nTPM
 }
 
 export async function GET(request: Request) {
@@ -18,7 +15,8 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const gene1 = searchParams.get('gene1');
     const gene2 = searchParams.get('gene2');
-    const tissues = searchParams.get('tissues'); // comma-separated list
+    const cellType = searchParams.get('cellType');
+    const tissues = searchParams.get('tissues'); // comma-separated list for tissue-specific mode
 
     if (!gene1 || !gene2) {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
@@ -28,64 +26,106 @@ export async function GET(request: Request) {
     const db = client.db('coexpression_db');
     const collection = db.collection<ExpressionRecord>('expression_data');
 
-    // Build query
+    // Build query - optimized for performance
+    const geneNames = [gene1.toUpperCase(), gene2.toUpperCase(), gene1.toLowerCase(), gene2.toLowerCase()];
     let query: any = {
       $or: [
-        { gene_name: { $in: [gene1, gene2] } },
-        { gene: { $in: [gene1, gene2] } },
-        { gene_name: { $regex: new RegExp(`^${gene1}$`, 'i') } },
-        { gene_name: { $regex: new RegExp(`^${gene2}$`, 'i') } },
-        { gene: { $regex: new RegExp(`^${gene1}$`, 'i') } },
-        { gene: { $regex: new RegExp(`^${gene2}$`, 'i') } }
+        { gn: { $in: geneNames } },
+        { g: { $in: geneNames } }
       ]
     };
 
-    // Add tissue filter if provided
+    // Cell-specific mode: filter by specific cell type
+    if (cellType) {
+      query.ct = cellType;
+
+      const expressionData = await collection.find(query).toArray();
+
+      // Separate data by gene
+      const gene1Data = expressionData.filter(record =>
+        record.gn.toLowerCase() === gene1.toLowerCase() ||
+        record.g.toLowerCase() === gene1.toLowerCase()
+      );
+
+      const gene2Data = expressionData.filter(record =>
+        record.gn.toLowerCase() === gene2.toLowerCase() ||
+        record.g.toLowerCase() === gene2.toLowerCase()
+      );
+
+      // Create tissue expression data for this cell type
+      const tissueData: any[] = [];
+      const uniqueTissues = [...new Set(expressionData.map(record => record.t))];
+
+      for (const tissue of uniqueTissues) {
+        const gene1Tissue = gene1Data.find(record => record.t === tissue);
+        const gene2Tissue = gene2Data.find(record => record.t === tissue);
+
+        // Only include if at least one gene has expression > 0
+        if ((gene1Tissue?.n || 0) > 0 || (gene2Tissue?.n || 0) > 0) {
+          tissueData.push({
+            tissueType: tissue.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            tissue: tissue,
+            cellType: cellType,
+            gene1_name: gene1Data[0]?.gn || gene1,
+            gene1_expression: gene1Tissue?.n || 0,
+            gene2_name: gene2Data[0]?.gn || gene2,
+            gene2_expression: gene2Tissue?.n || 0
+          });
+        }
+      }
+
+      // Sort by tissue name
+      tissueData.sort((a, b) => a.tissue.localeCompare(b.tissue));
+
+      return NextResponse.json(tissueData);
+    }
+
+    // Tissue-specific mode (original functionality): filter by tissues
     if (tissues) {
       const tissueList = tissues.split(',').map(t => t.trim());
-      query.tissue = { $in: tissueList };
+      query.t = { $in: tissueList };
     }
 
     const expressionData = await collection.find(query).toArray();
 
     // Separate data by gene
     const gene1Data = expressionData.filter(record =>
-      record.gene_name.toLowerCase() === gene1.toLowerCase() ||
-      record.gene.toLowerCase() === gene1.toLowerCase()
+      record.gn.toLowerCase() === gene1.toLowerCase() ||
+      record.g.toLowerCase() === gene1.toLowerCase()
     );
 
     const gene2Data = expressionData.filter(record =>
-      record.gene_name.toLowerCase() === gene2.toLowerCase() ||
-      record.gene.toLowerCase() === gene2.toLowerCase()
+      record.gn.toLowerCase() === gene2.toLowerCase() ||
+      record.g.toLowerCase() === gene2.toLowerCase()
     );
 
     // Group by tissue, then by cell type
     const tissueGroupedData: any = {};
-    const allTissues = [...new Set(expressionData.map(record => record.tissue))];
+    const allTissues = [...new Set(expressionData.map(record => record.t))];
 
     for (const tissue of allTissues) {
       const tissueCellData: any[] = [];
-      const gene1TissueData = gene1Data.filter(record => record.tissue === tissue);
-      const gene2TissueData = gene2Data.filter(record => record.tissue === tissue);
+      const gene1TissueData = gene1Data.filter(record => record.t === tissue);
+      const gene2TissueData = gene2Data.filter(record => record.t === tissue);
 
       const uniqueCellTypes = [...new Set([
-        ...gene1TissueData.map(record => record.cell_type_full),
-        ...gene2TissueData.map(record => record.cell_type_full)
+        ...gene1TissueData.map(record => record.ct),
+        ...gene2TissueData.map(record => record.ct)
       ])];
 
-      for (const cellType of uniqueCellTypes) {
-        const gene1Cell = gene1TissueData.find(record => record.cell_type_full === cellType);
-        const gene2Cell = gene2TissueData.find(record => record.cell_type_full === cellType);
+      for (const cellTypeItem of uniqueCellTypes) {
+        const gene1Cell = gene1TissueData.find(record => record.ct === cellTypeItem);
+        const gene2Cell = gene2TissueData.find(record => record.ct === cellTypeItem);
 
         tissueCellData.push({
-          cellType: cellType,
+          cellType: cellTypeItem,
           tissue: tissue,
-          gene1_name: gene1Data[0]?.gene_name || gene1,
-          gene1_expression: gene1Cell?.nTPM || 0,
-          gene2_name: gene2Data[0]?.gene_name || gene2,
-          gene2_expression: gene2Cell?.nTPM || 0,
-          cluster: gene1Cell?.cluster || gene2Cell?.cluster || '',
-          cell_type: gene1Cell?.cell_type || gene2Cell?.cell_type || ''
+          gene1_name: gene1Data[0]?.gn || gene1,
+          gene1_expression: gene1Cell?.n || 0,
+          gene2_name: gene2Data[0]?.gn || gene2,
+          gene2_expression: gene2Cell?.n || 0,
+          cluster: gene1Cell?.c || gene2Cell?.c || '',
+          cell_type: gene1Cell?.ct || gene2Cell?.ct || ''
         });
       }
 

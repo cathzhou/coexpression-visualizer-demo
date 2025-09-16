@@ -8,7 +8,7 @@ export async function GET() {
     const collection = db.collection('expression_data');
 
     // Get unique cell types
-    const cellTypes = await collection.distinct('cell_type');
+    const cellTypes = await collection.distinct('ct');
 
     // Sort alphabetically
     cellTypes.sort();

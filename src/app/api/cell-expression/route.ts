@@ -15,9 +15,9 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const gene1 = searchParams.get('gene1');
     const gene2 = searchParams.get('gene2');
-    const tissue = searchParams.get('tissue');
+    const cellType = searchParams.get('cellType');
 
-    if (!gene1 || !gene2 || !tissue) {
+    if (!gene1 || !gene2 || !cellType) {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
     }
 
@@ -25,11 +25,11 @@ export async function GET(request: Request) {
     const db = client.db('coexpression_db');
     const collection = db.collection<ExpressionRecord>('expression_data');
 
-    // Query for both genes in the specified tissue
+    // Query for both genes in the specified cell type
     // Build query - optimized for performance
     const geneNames = [gene1.toUpperCase(), gene2.toUpperCase(), gene1.toLowerCase(), gene2.toLowerCase()];
     const query = {
-      t: tissue,
+      ct: cellType,
       $or: [
         { gn: { $in: geneNames } },
         { g: { $in: geneNames } }
@@ -49,39 +49,35 @@ export async function GET(request: Request) {
       record.g.toLowerCase() === gene2.toLowerCase()
     );
 
-    // Create cell type mapping with expression values
-    const cellTypeExpression: any[] = [];
-    const uniqueCellTypes = [...new Set(expressionData.map(record => `${record.ct}_${record.c}`))];
+    // Create tissue mapping with expression values
+    const tissueExpression: any[] = [];
+    const uniqueTissues = [...new Set(expressionData.map(record => record.t))];
 
-    for (const cellType of uniqueCellTypes) {
-      const gene1Cell = gene1Data.find(record => `${record.ct}_${record.c}` === cellType);
-      const gene2Cell = gene2Data.find(record => `${record.ct}_${record.c}` === cellType);
+    for (const tissue of uniqueTissues) {
+      const gene1Tissue = gene1Data.find(record => record.t === tissue);
+      const gene2Tissue = gene2Data.find(record => record.t === tissue);
 
-      cellTypeExpression.push({
-        cellType: cellType,
+      tissueExpression.push({
+        tissueType: tissue.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        tissue: tissue,
         gene1_name: gene1Data[0]?.gn || gene1,
-        gene1_expression: gene1Cell?.n || 0,
+        gene1_expression: gene1Tissue?.n || 0,
         gene2_name: gene2Data[0]?.gn || gene2,
-        gene2_expression: gene2Cell?.n || 0,
-        cluster: gene1Cell?.c || gene2Cell?.c || '',
-        cell_type: gene1Cell?.ct || gene2Cell?.ct || ''
+        gene2_expression: gene2Tissue?.n || 0,
+        cluster: gene1Tissue?.c || gene2Tissue?.c || '',
+        cell_type: gene1Tissue?.ct || gene2Tissue?.ct || ''
       });
     }
 
-    // Sort by cell type name
-    cellTypeExpression.sort((a, b) => a.cellType.localeCompare(b.cellType));
+    // Sort by tissue name
+    tissueExpression.sort((a, b) => a.tissue.localeCompare(b.tissue));
 
-    return NextResponse.json({
-      tissue,
-      gene1,
-      gene2,
-      expressionData: cellTypeExpression
-    });
+    return NextResponse.json(tissueExpression);
 
   } catch (error) {
-    console.error('Error fetching tissue expression data:', error);
+    console.error('Error fetching cell expression data:', error);
     return NextResponse.json({
-      error: 'Failed to fetch tissue expression data',
+      error: 'Failed to fetch cell expression data',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }

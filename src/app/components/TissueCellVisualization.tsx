@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   BarChart,
   Bar,
@@ -40,7 +40,7 @@ export default function TissueCellVisualization({
 }: TissueCellVisualizationProps) {
   const [selectedTissues, setSelectedTissues] = useState<string[]>([]);
   const [selectedCells, setSelectedCells] = useState<string[]>([]);
-  const [metricType, setMetricType] = useState<'pearson_corr' | 'cosine_sim' | 'jaccard_index'>('pearson_corr');
+  const [metricType, setMetricType] = useState<'pearson_corr' | 'cosine_sim' | 'jaccard_index' | 'l2_norm_diff'>('pearson_corr');
   const [selectedTissueForCells, setSelectedTissueForCells] = useState<string | null>(null);
   const [tissueExpressionData, setTissueExpressionData] = useState<any[]>([]);
   const [allTissueData, setAllTissueData] = useState<any>({});
@@ -98,7 +98,7 @@ export default function TissueCellVisualization({
 
 
   // Fetch all tissue-cell expression data
-  const fetchAllTissueData = async () => {
+  const fetchAllTissueData = useCallback(async () => {
     if (!results.length) return;
 
     setLoadingAllData(true);
@@ -124,14 +124,14 @@ export default function TissueCellVisualization({
     } finally {
       setLoadingAllData(false);
     }
-  };
+  }, [results, selectedTissues]);
 
   // Load all tissue data when results change or tissues are selected
   useEffect(() => {
     if (results.length > 0 && analysisMode === 'tissue-specific') {
       fetchAllTissueData();
     }
-  }, [results, analysisMode, selectedTissues]);
+  }, [results, analysisMode, selectedTissues, fetchAllTissueData]);
 
   // Get unique tissues/cells for filtering
   const availableItems = useMemo(() => {
@@ -386,8 +386,15 @@ export default function TissueCellVisualization({
         </div>
       </div>
 
+      {/* Loading indicator for expression plots */}
+      {analysisMode === 'tissue-specific' && loadingAllData && (
+        <div className="bg-white rounded-lg p-8 text-center">
+          <div className="text-gray-500">Loading expression data...</div>
+        </div>
+      )}
+
       {/* Main Expression Plots - Show tissue-level data when no tissues selected, detailed when tissues selected */}
-      {analysisMode === 'tissue-specific' && Object.keys(allTissueData).length > 0 && (
+      {analysisMode === 'tissue-specific' && Object.keys(allTissueData).length > 0 && !loadingAllData && (
         <div className="space-y-2">
           {/* Gene 1 Expression Plot */}
           <div className="bg-white rounded-lg p-4">
@@ -405,8 +412,8 @@ export default function TissueCellVisualization({
                         // Show all cell data grouped by tissue, filter out cells with 0 expression for both genes
                         return Object.keys(allTissueData).sort().flatMap((tissue, tissueIdx) =>
                           allTissueData[tissue]
-                            .filter(cell => cell.gene1_expression > 0 || cell.gene2_expression > 0) // Filter out 0 expression for both genes
-                            .map((cell, cellIndex) => {
+                            .filter((cell: any) => cell.gene1_expression > 0 || cell.gene2_expression > 0) // Filter out 0 expression for both genes
+                            .map((cell: any, cellIndex: number) => {
                               const tissueFormatted = tissue.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                               return {
                                 cellType: cell.cellType,
@@ -430,8 +437,8 @@ export default function TissueCellVisualization({
                         const filteredTissues = Object.keys(allTissueData).sort().filter(tissue => selectedTissues.includes(tissue));
                         return filteredTissues.flatMap((tissue, tissueIdx) =>
                           allTissueData[tissue]
-                            .filter(cell => cell.gene1_expression > 0 || cell.gene2_expression > 0) // Filter out 0 expression for both genes
-                            .map((cell, cellIndex) => {
+                            .filter((cell: any) => cell.gene1_expression > 0 || cell.gene2_expression > 0) // Filter out 0 expression for both genes
+                            .map((cell: any, cellIndex: number) => {
                               const tissueFormatted = tissue.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                               return {
                                 cellType: cell.cellType,
@@ -473,7 +480,7 @@ export default function TissueCellVisualization({
                               return Object.keys(allTissueData).sort().flatMap((tissue, tissueIdx) =>
                                 allTissueData[tissue]
                                   .filter(cell => cell.gene1_expression > 0 || cell.gene2_expression > 0)
-                                  .map((cell, cellIndex) => {
+                                  .map((cell: any, cellIndex: number) => {
                                     const tissueFormatted = tissue.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                                     return { tissueGroup: tissueFormatted };
                                   })
@@ -530,7 +537,7 @@ export default function TissueCellVisualization({
                           return Object.keys(allTissueData).sort().flatMap((tissue, tissueIdx) =>
                             allTissueData[tissue]
                               .filter(cell => cell.gene1_expression > 0 || cell.gene2_expression > 0)
-                              .map((cell, cellIndex) => (
+                              .map((cell: any, cellIndex: number) => (
                                 <Cell key={`cell-${tissueIdx}-${cellIndex}`} fill={tissueColors[tissue] || '#60A5FA'} />
                               ))
                           );
@@ -540,7 +547,7 @@ export default function TissueCellVisualization({
                           return filteredTissues.flatMap((tissue, tissueIdx) =>
                             allTissueData[tissue]
                               .filter(cell => cell.gene1_expression > 0 || cell.gene2_expression > 0)
-                              .map((cell, cellIndex) => (
+                              .map((cell: any, cellIndex: number) => (
                                 <Cell key={`cell-${tissueIdx}-${cellIndex}`} fill={tissueColors[tissue] || '#60A5FA'} />
                               ))
                           );
@@ -569,8 +576,8 @@ export default function TissueCellVisualization({
                         // Show all cell data grouped by tissue, filter out cells with 0 expression for both genes
                         return Object.keys(allTissueData).sort().flatMap((tissue, tissueIdx) =>
                           allTissueData[tissue]
-                            .filter(cell => cell.gene1_expression > 0 || cell.gene2_expression > 0) // Filter out 0 expression for both genes
-                            .map((cell, cellIndex) => {
+                            .filter((cell: any) => cell.gene1_expression > 0 || cell.gene2_expression > 0) // Filter out 0 expression for both genes
+                            .map((cell: any, cellIndex: number) => {
                               const tissueFormatted = tissue.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                               return {
                                 cellType: cell.cellType,
@@ -594,8 +601,8 @@ export default function TissueCellVisualization({
                         const filteredTissues = Object.keys(allTissueData).sort().filter(tissue => selectedTissues.includes(tissue));
                         return filteredTissues.flatMap((tissue, tissueIdx) =>
                           allTissueData[tissue]
-                            .filter(cell => cell.gene1_expression > 0 || cell.gene2_expression > 0) // Filter out 0 expression for both genes
-                            .map((cell, cellIndex) => {
+                            .filter((cell: any) => cell.gene1_expression > 0 || cell.gene2_expression > 0) // Filter out 0 expression for both genes
+                            .map((cell: any, cellIndex: number) => {
                               const tissueFormatted = tissue.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                               return {
                                 cellType: cell.cellType,
@@ -637,7 +644,7 @@ export default function TissueCellVisualization({
                               return Object.keys(allTissueData).sort().flatMap((tissue, tissueIdx) =>
                                 allTissueData[tissue]
                                   .filter(cell => cell.gene1_expression > 0 || cell.gene2_expression > 0)
-                                  .map((cell, cellIndex) => {
+                                  .map((cell: any, cellIndex: number) => {
                                     const tissueFormatted = tissue.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                                     return { tissueGroup: tissueFormatted };
                                   })
@@ -694,7 +701,7 @@ export default function TissueCellVisualization({
                           return Object.keys(allTissueData).sort().flatMap((tissue, tissueIdx) =>
                             allTissueData[tissue]
                               .filter(cell => cell.gene1_expression > 0 || cell.gene2_expression > 0)
-                              .map((cell, cellIndex) => (
+                              .map((cell: any, cellIndex: number) => (
                                 <Cell key={`cell-${tissueIdx}-${cellIndex}`} fill={tissueColors[tissue] || '#34D399'} />
                               ))
                           );
@@ -704,7 +711,7 @@ export default function TissueCellVisualization({
                           return filteredTissues.flatMap((tissue, tissueIdx) =>
                             allTissueData[tissue]
                               .filter(cell => cell.gene1_expression > 0 || cell.gene2_expression > 0)
-                              .map((cell, cellIndex) => (
+                              .map((cell: any, cellIndex: number) => (
                                 <Cell key={`cell-${tissueIdx}-${cellIndex}`} fill={tissueColors[tissue] || '#34D399'} />
                               ))
                           );
@@ -769,7 +776,6 @@ export default function TissueCellVisualization({
                 <Tooltip content={<CustomTooltip />} />
                 <Bar
                   dataKey={metricType}
-                  fill={getBarColor(metricType)}
                   radius={[4, 4, 0, 0]}
                   onClick={(data) => {
                     if (analysisMode === 'tissue-specific') {
@@ -778,7 +784,14 @@ export default function TissueCellVisualization({
                     }
                   }}
                   style={{ cursor: analysisMode === 'tissue-specific' ? 'pointer' : 'default' }}
-                />
+                >
+                  {visualizationData.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={analysisMode === 'tissue-specific' ? (tissueColors[entry.name] || '#60A5FA') : getBarColor(metricType)}
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>

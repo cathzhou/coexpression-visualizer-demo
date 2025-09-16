@@ -8,15 +8,12 @@ import {
 } from '@/types';
 
 interface ExpressionRecord {
-  gene: string;
-  gene_name: string;
-  tissue: string;
-  cluster: string;
-  cell_type: string;
-  read_count: number;
-  nTPM: number;
-  cell_type_full: string;
-  tissue_cell_combo: string;
+  g: string;         // gene
+  gn: string;        // gene_name
+  t: string;         // tissue
+  c: string;         // cluster
+  ct: string;        // cell_type
+  n: number;         // nTPM
 }
 
 // Helper function to send SSE message
@@ -42,15 +39,12 @@ async function loadExpressionDataForGenes(gene1: string, gene2: string): Promise
     const db = client.db('coexpression_db');
     const collection = db.collection<ExpressionRecord>('expression_data');
 
-    // Query for both genes using gene name or ensembl ID
+    // Query for both genes using gene name or ensembl ID - optimized for performance
+    const geneNames = [gene1.toUpperCase(), gene2.toUpperCase(), gene1.toLowerCase(), gene2.toLowerCase()];
     const query = {
       $or: [
-        { gene_name: { $in: [gene1, gene2] } },
-        { gene: { $in: [gene1, gene2] } },
-        { gene_name: { $regex: new RegExp(`^${gene1}$`, 'i') } },
-        { gene_name: { $regex: new RegExp(`^${gene2}$`, 'i') } },
-        { gene: { $regex: new RegExp(`^${gene1}$`, 'i') } },
-        { gene: { $regex: new RegExp(`^${gene2}$`, 'i') } }
+        { gn: { $in: geneNames } },
+        { g: { $in: geneNames } }
       ]
     };
 
@@ -122,15 +116,15 @@ function computeCorrelationMetrics(vec1: number[], vec2: number[]) {
   const binary1 = vec1.map(v => v > median1 ? 1 : 0);
   const binary2 = vec2.map(v => v > median2 ? 1 : 0);
 
-  const intersection = binary1.reduce((sum, v, i) => sum + (v && binary2[i] ? 1 : 0), 0);
-  const union = binary1.reduce((sum, v, i) => sum + (v || binary2[i] ? 1 : 0), 0);
+  const intersection = binary1.reduce((sum: number, v, i) => sum + (v && binary2[i] ? 1 : 0), 0);
+  const union = binary1.reduce((sum: number, v, i) => sum + (v || binary2[i] ? 1 : 0), 0);
   const jaccard_index = union === 0 ? 0 : intersection / union;
 
   // L2 norm difference
-  const l2_norm_diff = Math.sqrt(vec1.map((v, i) => Math.pow(v - vec2[i], 2)).reduce((a, b) => a + b, 0));
+  const l2_norm_diff = Math.sqrt(vec1.map((v, i) => Math.pow(v - vec2[i], 2)).reduce((a: number, b) => a + b, 0));
 
   // Overlap count (both above median)
-  const overlap_count = binary1.reduce((sum, v, i) => sum + (v && binary2[i] ? 1 : 0), 0);
+  const overlap_count = binary1.reduce((sum: number, v, i) => sum + (v && binary2[i] ? 1 : 0), 0);
 
   return {
     pearson_corr: isNaN(pearson_corr) ? 0 : pearson_corr,
@@ -152,13 +146,13 @@ async function handleTissueSpecificAnalysis(
 
     // Filter data for the two genes
     const gene1Data = expressionData.filter(row =>
-      row.gene_name.toLowerCase() === gene1.toLowerCase() ||
-      row.gene.toLowerCase() === gene1.toLowerCase()
+      row.gn.toLowerCase() === gene1.toLowerCase() ||
+      row.g.toLowerCase() === gene1.toLowerCase()
     );
 
     const gene2Data = expressionData.filter(row =>
-      row.gene_name.toLowerCase() === gene2.toLowerCase() ||
-      row.gene.toLowerCase() === gene2.toLowerCase()
+      row.gn.toLowerCase() === gene2.toLowerCase() ||
+      row.g.toLowerCase() === gene2.toLowerCase()
     );
 
     if (gene1Data.length === 0 || gene2Data.length === 0) {
@@ -170,32 +164,32 @@ async function handleTissueSpecificAnalysis(
     // Get unique tissues to analyze
     const tissues = selectedTissues.length > 0
       ? selectedTissues
-      : [...new Set(expressionData.map(row => row.tissue))];
+      : [...new Set(expressionData.map(row => row.t))];
 
     const tissueCorrelations: TissueSpecificCorrelation[] = [];
 
     for (const tissue of tissues) {
       // Get expression data for this tissue
-      const gene1TissueData = gene1Data.filter(row => row.tissue === tissue);
-      const gene2TissueData = gene2Data.filter(row => row.tissue === tissue);
+      const gene1TissueData = gene1Data.filter(row => row.t === tissue);
+      const gene2TissueData = gene2Data.filter(row => row.t === tissue);
 
       if (gene1TissueData.length === 0 || gene2TissueData.length === 0) {
         continue;
       }
 
       // Create cell type expression vectors within this tissue
-      const cellTypes = [...new Set(gene1TissueData.map(row => row.cell_type_full))];
+      const cellTypes = [...new Set(gene1TissueData.map(row => row.ct))];
 
       const vec1: number[] = [];
       const vec2: number[] = [];
 
-      for (const cellTypeFull of cellTypes) {
-        const gene1Cell = gene1TissueData.find(row => row.cell_type_full === cellTypeFull);
-        const gene2Cell = gene2TissueData.find(row => row.cell_type_full === cellTypeFull);
+      for (const cellType of cellTypes) {
+        const gene1Cell = gene1TissueData.find(row => row.ct === cellType);
+        const gene2Cell = gene2TissueData.find(row => row.ct === cellType);
 
         if (gene1Cell && gene2Cell) {
-          vec1.push(gene1Cell.nTPM);
-          vec2.push(gene2Cell.nTPM);
+          vec1.push(gene1Cell.n);
+          vec2.push(gene2Cell.n);
         }
       }
 
@@ -209,12 +203,12 @@ async function handleTissueSpecificAnalysis(
     }
 
     const result: TissueCellAnalysisResult = {
-      p1_name: gene1Data[0]?.gene_name || gene1,
+      p1_name: gene1Data[0]?.gn || gene1,
       p1_uniprot: gene1,
-      p1_ensembl: gene1Data[0]?.gene || '',
-      p2_name: gene2Data[0]?.gene_name || gene2,
+      p1_ensembl: gene1Data[0]?.g || '',
+      p2_name: gene2Data[0]?.gn || gene2,
       p2_uniprot: gene2,
-      p2_ensembl: gene2Data[0]?.gene || '',
+      p2_ensembl: gene2Data[0]?.g || '',
       pair_id: `${gene1}_${gene2}`,
       tissue_correlations: tissueCorrelations,
       cell_correlations: []
@@ -242,13 +236,13 @@ async function handleCellSpecificAnalysis(
 
     // Filter data for the two genes
     const gene1Data = expressionData.filter(row =>
-      row.gene_name.toLowerCase() === gene1.toLowerCase() ||
-      row.gene.toLowerCase() === gene1.toLowerCase()
+      row.gn.toLowerCase() === gene1.toLowerCase() ||
+      row.g.toLowerCase() === gene1.toLowerCase()
     );
 
     const gene2Data = expressionData.filter(row =>
-      row.gene_name.toLowerCase() === gene2.toLowerCase() ||
-      row.gene.toLowerCase() === gene2.toLowerCase()
+      row.gn.toLowerCase() === gene2.toLowerCase() ||
+      row.g.toLowerCase() === gene2.toLowerCase()
     );
 
     if (gene1Data.length === 0 || gene2Data.length === 0) {
@@ -260,51 +254,51 @@ async function handleCellSpecificAnalysis(
     // Get unique cell types to analyze
     const cellTypes = selectedCells.length > 0
       ? selectedCells
-      : [...new Set(gene1Data.map(row => row.cell_type_full))];
+      : [...new Set(gene1Data.map(row => row.ct))];
 
     const cellCorrelations: CellSpecificCorrelation[] = [];
 
-    for (const cellTypeFull of cellTypes) {
+    for (const cellType of cellTypes) {
       // Get expression data for this cell type across tissues
-      const gene1CellData = gene1Data.filter(row => row.cell_type_full === cellTypeFull);
-      const gene2CellData = gene2Data.filter(row => row.cell_type_full === cellTypeFull);
+      const gene1CellData = gene1Data.filter(row => row.ct === cellType);
+      const gene2CellData = gene2Data.filter(row => row.ct === cellType);
 
       if (gene1CellData.length === 0 || gene2CellData.length === 0) {
         continue;
       }
 
       // Create tissue expression vectors for this cell type
-      const tissues = [...new Set(gene1CellData.map(row => row.tissue))];
+      const tissues = [...new Set(gene1CellData.map(row => row.t))];
 
       const vec1: number[] = [];
       const vec2: number[] = [];
 
       for (const tissue of tissues) {
-        const gene1Tissue = gene1CellData.find(row => row.tissue === tissue);
-        const gene2Tissue = gene2CellData.find(row => row.tissue === tissue);
+        const gene1Tissue = gene1CellData.find(row => row.t === tissue);
+        const gene2Tissue = gene2CellData.find(row => row.t === tissue);
 
         if (gene1Tissue && gene2Tissue) {
-          vec1.push(gene1Tissue.nTPM);
-          vec2.push(gene2Tissue.nTPM);
+          vec1.push(gene1Tissue.n);
+          vec2.push(gene2Tissue.n);
         }
       }
 
       if (vec1.length > 1) { // Need at least 2 data points for correlation
         const metrics = computeCorrelationMetrics(vec1, vec2);
         cellCorrelations.push({
-          cell_type: cellTypeFull,
+          cell_type: cellType,
           ...metrics
         });
       }
     }
 
     const result: TissueCellAnalysisResult = {
-      p1_name: gene1Data[0]?.gene_name || gene1,
+      p1_name: gene1Data[0]?.gn || gene1,
       p1_uniprot: gene1,
-      p1_ensembl: gene1Data[0]?.gene || '',
-      p2_name: gene2Data[0]?.gene_name || gene2,
+      p1_ensembl: gene1Data[0]?.g || '',
+      p2_name: gene2Data[0]?.gn || gene2,
       p2_uniprot: gene2,
-      p2_ensembl: gene2Data[0]?.gene || '',
+      p2_ensembl: gene2Data[0]?.g || '',
       pair_id: `${gene1}_${gene2}`,
       tissue_correlations: [],
       cell_correlations: cellCorrelations
